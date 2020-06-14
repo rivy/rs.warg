@@ -1,0 +1,22 @@
+[package]
+name = "warg"
+version = "0.0.0"
+authors = ["Roy Ivy III <rivy.dev@gmail.com>"]
+description = "(Windows) CLI command line argument expansion"
+license = "MIT OR Apache-2.0"
+
+categories = ["os"]
+keywords = ["windows", "wildcards", "glob", "shell"]
+
+readme = "README.mkd"
+homepage = "https://github.com/rivy/rs.warg"
+repository = "https://github.com/rivy/rs.warg"
+
+edition = "2018"
+
+[package.metadata]
+copyright = "Copyright (C) Roy Ivy III"
+
+# ref: <https://doc.rust-lang.org/cargo/reference/manifest.html>
+
+[dependencies]
