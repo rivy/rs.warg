@@ -17,6 +17,12 @@ edition = "2018"
 [package.metadata]
 copyright = "Copyright (C) Roy Ivy III"
 
+[lib]
+path = "src/lib/lib.rs"
+
 # ref: <https://doc.rust-lang.org/cargo/reference/manifest.html>
 
 [dependencies]
+winapi = { version = "0.3.8", features = ["processenv", "shellapi", "winbase"] }
+# * temp/testing
+wild = "2.0.4"
