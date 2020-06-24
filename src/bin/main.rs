@@ -18,7 +18,7 @@
 
 // ## notable argument constructions
 // `EXE this "that""the other"` => differs between pre2008 and 2008+
-// `EXE this "that"\"the other"` => CommandLineToArgvW is bugged separating 'other' as the last argument
+// `EXE this "that"\"the other"` => shows a bug in `CommandLineToArgvW()`, separating out 'other' as a separate last argument
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -298,12 +298,18 @@ fn tokens_2008<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
     tokens
 }
 
+#[derive(PartialEq)]
+enum TokenQuoteType {
+    Literal,
+    DoubleQuote,
+    SingleQuote,
+}
 enum TokenState {
     OutsideToken,
-    InToken(/* quoted */ bool),
-    OnDoubleQuote(/* quoted */ bool),
-    OnSingleQuote(/* quoted */ bool),
-    OnBackslash(/* n_backslashes */ usize, /* quoted */ bool),
+    InToken(/* quoted */ TokenQuoteType),
+    OnDoubleQuote(/* quoted */ TokenQuoteType),
+    OnSingleQuote(/* quoted */ TokenQuoteType),
+    OnBackslash(/* n_backslashes */ usize, /* quoted */ TokenQuoteType),
 }
 
 fn tokens<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
@@ -311,26 +317,26 @@ fn tokens<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
     let mut tokens: Vec<OsString> = vec![];
     let mut token: Vec<OsStrCharType> = vec![];
 
-    use self::TokenState2008::*;
-    let mut state: TokenState2008 = OutsideToken;
+    use self::TokenState::*;
+    let mut state: TokenState = OutsideToken;
 
     let length = substring.len();
     for (i, &cu) in substring.iter().enumerate() {
         state = match state {
             OutsideToken => match cu {
                 c if (c == OsStrCharType::from(b' ') || c == OsStrCharType::from(b'\t')) => OutsideToken,
-                c if c == OsStrCharType::from(b'"') => InToken(true),
-                c if c == OsStrCharType::from(b'\\') => OnBackslash(1, false),
+                c if c == OsStrCharType::from(b'"') => InToken(TokenQuoteType::DoubleQuote),
+                c if c == OsStrCharType::from(b'\\') => OnBackslash(1, TokenQuoteType::Literal),
                 c => {
                     token.push(c);
-                    InToken(false)
+                    InToken(TokenQuoteType::Literal)
                 }
             },
             InToken(quoted) => match cu {
                 c if c == u16::from(b'\\') => OnBackslash(1, quoted),
-                c if quoted && c == OsStrCharType::from(b'"') => OnDoubleQuote(quoted),
-                c if !quoted && c == OsStrCharType::from(b'"') => InToken(true),
-                c if !quoted && (c == OsStrCharType::from(b' ') || c == OsStrCharType::from(b'\t')) => {
+                c if quoted != TokenQuoteType::Literal && c == OsStrCharType::from(b'"') => OnDoubleQuote(quoted),
+                c if quoted == TokenQuoteType::Literal && c == OsStrCharType::from(b'"') => InToken(TokenQuoteType::DoubleQuote),
+                c if quoted == TokenQuoteType::Literal && (c == OsStrCharType::from(b' ') || c == OsStrCharType::from(b'\t')) => {
                     tokens.push(OsString::from_wide(&token));
                     token = vec![];
                     OutsideToken
@@ -344,7 +350,7 @@ fn tokens<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
                 c if c == OsStrCharType::from(b'"') => {
                     // (2008) In quoted arg "" means literal quote and *continue* the quoted string
                     token.push(c);
-                    InToken(true)
+                    InToken(TokenQuoteType::DoubleQuote)
                 },
                 c if (c == OsStrCharType::from(b' ') || c == OsStrCharType::from(b'\t')) => {
                     tokens.push(OsString::from_wide(&token));
@@ -353,7 +359,23 @@ fn tokens<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
                 },
                 c => {
                     token.push(c);
-                    InToken(false)
+                    InToken(TokenQuoteType::Literal)
+                },
+            },
+            OnSingleQuote(quoted) => match cu {
+                c if c == OsStrCharType::from(b'\'') => {
+                    // WIP .... NA .... (2008) In quoted arg "" means literal quote and *continue* the quoted string
+                    token.push(c);
+                    InToken(TokenQuoteType::DoubleQuote)
+                },
+                c if (c == OsStrCharType::from(b' ') || c == OsStrCharType::from(b'\t')) => {
+                    tokens.push(OsString::from_wide(&token));
+                    token = vec![];
+                    OutsideToken
+                },
+                c => {
+                    token.push(c);
+                    InToken(TokenQuoteType::Literal)
                 },
             },
             OnBackslash(count, quoted) => match cu {
@@ -367,13 +389,16 @@ fn tokens<T: AsRef<OsStr>>(line: T) -> Vec<OsString> {
                         // An odd number of backslashes is treated as followed by a protected quotation mark.
                         token.push(c);
                         InToken(quoted)
-                    } else if quoted {
-                        // An even number of backslashes is treated as followed by a word terminator.
-                        tokens.push(OsString::from_wide(&token));
-                        token = vec![];
-                        OutsideToken
                     } else {
-                        InToken(quoted)
+                        match quoted {
+                            q if q == TokenQuoteType::SingleQuote || q == TokenQuoteType::DoubleQuote => {
+                                // An even number of backslashes is treated as followed by a word terminator.
+                                tokens.push(OsString::from_wide(&token));
+                                token = vec![];
+                                OutsideToken
+                                },
+                            _ => { InToken(quoted) }
+                        }
                     }
                 },
                 c if (c == OsStrCharType::from(b'\\') && i < length-1) => OnBackslash(count + 1, quoted),
